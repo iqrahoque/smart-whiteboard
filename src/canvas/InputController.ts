@@ -321,12 +321,26 @@ export class InputController {
 
     if (this.mode === 'pinching') {
       if (this.pointers.size < 2) {
-        this.mode = this.pointers.size === 1 ? 'panning' : 'idle'
-        this.activePointerId = this.pointers.size === 1 ? [...this.pointers.keys()][0] ?? null : null
-        this.lastPan = this.mode === 'panning' ? this.currentPinchMid() : null
+        const remaining = this.pointers.size === 1 ? [...this.pointers.keys()][0] ?? null : null
+        this.mode = remaining !== null ? 'panning' : 'idle'
+        this.activePointerId = remaining
+        // The pan reference is the remaining pointer's own last known position,
+        // so the next move produces only an incremental delta. A pinch midpoint
+        // is undefined with a single pointer and must never seed the pan.
+        this.lastPan = remaining !== null ? this.pointers.get(remaining) ?? null : null
         this.lastPinchMid = null
         this.lastPinchAppliedDist = 0
         this.pinchStartDist = 0
+        if (remaining !== null) {
+          // Keep receiving moves for the surviving pointer even if it drifts
+          // off the canvas mid-pan (touch has implicit capture; mouse/pen may
+          // not). Best-effort: losing capture only means edge moves are missed.
+          try {
+            this.canvas.setPointerCapture(remaining)
+          } catch {
+            /* capture is best-effort */
+          }
+        }
       }
       return
     }
