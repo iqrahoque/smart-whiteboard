@@ -117,13 +117,28 @@ export function App(): JSX.Element {
       }
     }
     window.addEventListener('pagehide', flush)
-    window.addEventListener('blur', () => {
+    // Stable named handler so cleanup can remove the same reference; an
+    // anonymous listener here would accumulate on every mount cycle.
+    const onWindowBlur = (): void => {
       spaceRef.current = false
-    })
+    }
+    window.addEventListener('blur', onWindowBlur)
     return () => {
       unsub()
       window.removeEventListener('pagehide', flush)
-      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
+      window.removeEventListener('blur', onWindowBlur)
+      // Persist a pending debounced write instead of dropping it, and clear
+      // every timer this component scheduled. (After unmount the save-state
+      // update is a harmless no-op; the write itself must still happen.)
+      flush()
+      if (zoomTimerRef.current !== null) {
+        window.clearTimeout(zoomTimerRef.current)
+        zoomTimerRef.current = null
+      }
+      if (noticeTimerRef.current !== null) {
+        window.clearTimeout(noticeTimerRef.current)
+        noticeTimerRef.current = null
+      }
     }
   }, [controller, repo])
 
