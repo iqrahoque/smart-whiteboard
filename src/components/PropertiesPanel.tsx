@@ -24,6 +24,8 @@ export interface PropertiesPanelProps {
   /** The selected text object, when exactly one is selected. */
   selectedText: TextObject | null
   onConvertSelectionToText: () => void
+  /** Redraw the selected handwriting as neat letterforms (undoable). */
+  onBeautifySelection: () => void
   onTextChange: (id: string, patch: Partial<Pick<TextObject, 'text' | 'fontSize' | 'color'>>) => void
 }
 
@@ -142,6 +144,7 @@ export function PropertiesPanel(props: PropertiesPanelProps): JSX.Element {
     selectedStrokesCount,
     selectedText,
     onConvertSelectionToText,
+    onBeautifySelection,
     onTextChange,
   } = props
   const inkActive = tool === 'pen' || tool === 'highlighter'
@@ -218,13 +221,14 @@ export function PropertiesPanel(props: PropertiesPanelProps): JSX.Element {
       </section>
 
       <section className="prop-section">
-        <h3 className="prop-title">Handwriting → text</h3>
+        <h3 className="prop-title">Handwriting</h3>
         {selectedText ? (
           <TextEditor text={selectedText} onChange={onTextChange} />
         ) : (
           <>
             <p className="prop-hint">
               Select ink with the Select tool, or drag with the Text tool (T) over a written area.
+              To Text types the recognized writing; Beautify redraws the same letters as neat ink.
               Works best with clear, separated block letters — offline matching, no cloud.
             </p>
             <div className="prop-row">
@@ -240,6 +244,19 @@ export function PropertiesPanel(props: PropertiesPanelProps): JSX.Element {
                 onClick={onConvertSelectionToText}
               >
                 To Text{selectedStrokesCount > 0 ? ` (${selectedStrokesCount})` : ''}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={selectedStrokesCount === 0}
+                title={
+                  selectedStrokesCount > 0
+                    ? `Redraw ${selectedStrokesCount} stroke${selectedStrokesCount === 1 ? '' : 's'} as neat letterforms (undoable)`
+                    : 'Select handwriting strokes first'
+                }
+                onClick={onBeautifySelection}
+              >
+                Beautify
               </button>
             </div>
           </>

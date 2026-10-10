@@ -563,6 +563,7 @@ export function App(): JSX.Element {
             selectedStrokesCount={selectedStrokesCount}
             selectedText={selectedText}
             onConvertSelectionToText={() => bridge.convertSelectionToText()}
+            onBeautifySelection={() => bridge.beautifySelection()}
             onTextChange={(id, patch) => controller.dispatch(updateTextCommand(currentPage.id, id, patch))}
           />
         )}

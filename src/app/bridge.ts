@@ -8,7 +8,7 @@
  * React render. Commands are dispatched only on gesture completion.
  */
 
-import { addObjectCommand, convertStrokesToTextCommand, moveObjectsCommand, removeObjectsCommand } from '../documents/Commands'
+import { addObjectCommand, beautifyStrokesCommand, convertStrokesToTextCommand, moveObjectsCommand, removeObjectsCommand } from '../documents/Commands'
 import type { DocumentController } from '../documents/DocumentController'
 import type {
   NotebookDoc,
@@ -30,6 +30,7 @@ import type { Bounds } from '../geometry/SnapEngine'
 import { recognizeShape, RECOGNIZE_THRESHOLD } from '../geometry/ShapeRecognizer'
 import { processRawSamples } from '../ink/StrokeProcessor'
 import { recognizeText } from '../ink/TextRecognizer'
+import { beautifyHandwriting } from '../ink/HandwritingBeautifier'
 import type { AppSettings } from './settings'
 
 /** Extra imperative handles the App shell needs beyond InputBridge. */
@@ -43,6 +44,8 @@ export interface BridgeExtras {
   getSelectionIds(): readonly string[]
   /** Convert the selected handwriting strokes into a text object. */
   convertSelectionToText(): boolean
+  /** Redraw the selected handwriting strokes as neat letterforms (undoable). */
+  beautifySelection(): boolean
   /** Delete the selected objects; true when a command was dispatched. */
   deleteSelection(): boolean
 }
@@ -443,6 +446,34 @@ export function buildAppBridge(deps: BridgeDeps): AppBridge & BridgeExtras {
       const ok = convertStrokes(strokes)
       if (ok) setSelection([])
       return ok
+    },
+    beautifySelection: () => {
+      const strokes = currentPageObjects().filter(
+        (o): o is StrokeObject => selectionIds.includes(o.id) && o.type === 'stroke',
+      )
+      if (strokes.length === 0) {
+        deps.onNotice('Select some handwriting first, then beautify it.')
+        return false
+      }
+      const outcome = beautifyHandwriting(strokes)
+      if (!outcome) {
+        deps.onNotice(
+          'Not confident enough to beautify — your ink is untouched. Clear, separated block letters work best.',
+        )
+        return false
+      }
+      deps.controller.dispatch(beautifyStrokesCommand(deps.pageId.current, strokes, outcome.strokes))
+      // Keep the replacement ink selected so it can be edited or undone visibly.
+      setSelection(outcome.strokes.map((s) => s.id))
+      const pct = Math.round(outcome.confidence * 100)
+      const keptNote =
+        outcome.keptGlyphs > 0
+          ? `, kept ${outcome.keptGlyphs} unclear letter${outcome.keptGlyphs === 1 ? '' : 's'} as ink`
+          : ''
+      deps.onNotice(
+        `Beautified ${outcome.replacedGlyphs} letter${outcome.replacedGlyphs === 1 ? '' : 's'} (${pct}% confidence${keptNote}) — Ctrl+Z restores your ink.`,
+      )
+      return true
     },
     deleteSelection: () => {
       if (selectionIds.length === 0) return false

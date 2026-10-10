@@ -7,7 +7,7 @@
  * pointer sample (commands are created on gesture *completion*, not per point).
  */
 
-import type { NotebookDoc, PageDoc, PageObject, PaperStyle, ShapeKind, TextObject } from './DocumentModel'
+import type { NotebookDoc, PageDoc, PageObject, PaperStyle, ShapeKind, StrokeObject, TextObject } from './DocumentModel'
 import { findPage, replacePage, translateObject } from './DocumentModel'
 
 export interface DocCommand {
@@ -197,6 +197,48 @@ export function convertStrokesToTextCommand(
       const page = findPage(nb, pageId)
       if (!page) return nb
       const objects = page.objects.filter((o) => o.id !== text.id)
+      for (const e of [...entries].sort((a, b) => a.index - b.index)) {
+        objects.splice(Math.min(e.index, objects.length), 0, e.obj)
+      }
+      return replacePage(nb, { ...page, objects, updatedAt: Date.now() })
+    },
+  }
+}
+
+/**
+ * Replace a set of handwriting strokes with redrawn "beautified" strokes in
+ * one undoable step (offline handwriting beautification). Added strokes land
+ * at the earliest original index; revert restores every original stroke at
+ * its exact z-order.
+ */
+export function beautifyStrokesCommand(
+  pageId: string,
+  removed: readonly PageObject[],
+  added: readonly StrokeObject[],
+): DocCommand {
+  const ids = new Set(removed.map((o) => o.id))
+  const addedIds = new Set(added.map((o) => o.id))
+  // Original indices so undo can restore the exact z-order.
+  let entries: Array<{ obj: PageObject; index: number }> = []
+  return {
+    label: 'Beautify handwriting',
+    apply: (nb) => {
+      const page = findPage(nb, pageId)
+      if (!page) return nb
+      entries = page.objects
+        .map((obj, index) => ({ obj, index }))
+        .filter((e) => ids.has(e.obj.id))
+      if (entries.length === 0 || added.length === 0) return nb
+      const insertAt = Math.min(...entries.map((e) => e.index))
+      const kept = page.objects.filter((o) => !ids.has(o.id))
+      const objects = [...kept]
+      objects.splice(Math.min(insertAt, objects.length), 0, ...added)
+      return replacePage(nb, { ...page, objects, updatedAt: Date.now() })
+    },
+    revert: (nb) => {
+      const page = findPage(nb, pageId)
+      if (!page) return nb
+      const objects = page.objects.filter((o) => !addedIds.has(o.id))
       for (const e of [...entries].sort((a, b) => a.index - b.index)) {
         objects.splice(Math.min(e.index, objects.length), 0, e.obj)
       }

@@ -334,39 +334,107 @@ function dominantColor(strokes: readonly StrokeInfo[]): string {
   return best || '#1d1d1f'
 }
 
+// ---------------------------------------------------------------------------
+// Per-glyph recognition (shared by text conversion and beautification)
+// ---------------------------------------------------------------------------
+
+/** Document-space rectangle of a recognized glyph. */
+export interface GlyphBox {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+/** One recognized glyph cluster: best-match character, score, box, strokes. */
+export interface RecognizedGlyph {
+  /** Best-match character; '?' means below the per-character floor. */
+  ch: string
+  /** Match score in [0, 1] (may be negative for '?' glyphs). */
+  score: number
+  box: GlyphBox
+  /** The handwriting strokes that make up this glyph. */
+  strokes: StrokeObject[]
+}
+
+/** One clustered writing line: its glyphs plus baseline and cap height. */
+export interface RecognizedLine {
+  glyphs: RecognizedGlyph[]
+  /** Document-space y of the writing baseline (median glyph bottom). */
+  baseline: number
+  /** Tallest glyph height in the line (cap/ascender estimate). */
+  capHeight: number
+}
+
+/** Full per-glyph recognition result. */
+export interface GlyphRecognition {
+  lines: RecognizedLine[]
+  /** Mean per-glyph score in [0, 1] (same measure as recognizeText). */
+  confidence: number
+  /** Dominant ink color of the recognized strokes. */
+  color: string
+}
+
+/**
+ * Recognize handwriting into per-glyph detail: which strokes form each glyph,
+ * the matched character, its score and box, plus each line's baseline and cap
+ * height. This is the geometric substrate the beautifier redraws from.
+ *
+ * Returns null under the same conditions as recognizeText (empty input,
+ * nothing clusterable, or overall confidence below the gate) so callers can
+ * keep the ink untouched.
+ */
+export function recognizeGlyphDetails(strokes: readonly StrokeObject[]): GlyphRecognition | null {
+  if (strokes.length === 0) return null
+  const templates = buildTemplates()
+  const infos: StrokeInfo[] = strokes.map((stroke) => ({ stroke, box: strokeBox(stroke) }))
+  const lines = clusterLines(infos)
+
+  const outLines: RecognizedLine[] = []
+  const allScores: number[] = []
+  for (const line of lines) {
+    const glyphs = segmentGlyphs(line)
+    if (glyphs.length === 0) continue
+    const capHeight = Math.max(...glyphs.map((g) => g.box.maxY - g.box.minY), 1)
+    const scored = glyphs.map((g) => matchGlyph(g, capHeight, templates))
+    const recognized: RecognizedGlyph[] = scored.map((s, i) => {
+      const cluster = glyphs[i]
+      return {
+        ch: s.ch,
+        score: s.score,
+        box: { ...s.box },
+        strokes: cluster ? cluster.strokes.map((si) => si.stroke) : [],
+      }
+    })
+    outLines.push({
+      glyphs: recognized,
+      baseline: median(scored.map((s) => s.box.maxY)),
+      capHeight,
+    })
+    for (const s of scored) allScores.push(s.score)
+  }
+  if (outLines.length === 0 || allScores.length === 0) return null
+
+  const confidence = allScores.reduce((acc, s) => acc + s, 0) / allScores.length
+  if (confidence < CONFIDENCE_GATE) return null
+
+  return { lines: outLines, confidence, color: dominantColor(infos) }
+}
+
 /**
  * Recognize handwriting strokes as a text block. Returns null when the input
  * is empty or overall confidence is below the gate — the caller must keep
  * the ink untouched in that case.
  */
 export function recognizeText(strokes: readonly StrokeObject[]): TextRecognitionResult | null {
-  if (strokes.length === 0) return null
-  const templates = buildTemplates()
-  const infos: StrokeInfo[] = strokes.map((stroke) => ({ stroke, box: strokeBox(stroke) }))
-  const lines = clusterLines(infos)
-
-  interface AssembledLine {
-    glyphs: ScoredGlyph[]
-    scores: number[]
-  }
-  const assembled: AssembledLine[] = []
-  for (const line of lines) {
-    const glyphs = segmentGlyphs(line)
-    if (glyphs.length === 0) continue
-    const capHeight = Math.max(...glyphs.map((g) => g.box.maxY - g.box.minY), 1)
-    const scored = glyphs.map((g) => matchGlyph(g, capHeight, templates))
-    assembled.push({ glyphs: scored, scores: scored.map((s) => s.score) })
-  }
-  if (assembled.length === 0) return null
-
-  const allGlyphs = assembled.flatMap((l) => l.glyphs)
-  const confidence = allGlyphs.reduce((acc, g) => acc + g.score, 0) / allGlyphs.length
-  if (confidence < CONFIDENCE_GATE) return null
+  const details = recognizeGlyphDetails(strokes)
+  if (!details) return null
+  const allGlyphs = details.lines.flatMap((l) => l.glyphs)
 
   // Word spacing within each line; newlines between lines. A word gap must
   // exceed both a fraction of the median letter advance and a fraction of
   // the letter height, so narrow letters (l, i, 1) do not read as spaces.
-  const linesText = assembled.map((line) => {
+  const linesText = details.lines.map((line) => {
     const advances: number[] = []
     for (let i = 1; i < line.glyphs.length; i++) {
       const a = line.glyphs[i - 1]
@@ -377,7 +445,7 @@ export function recognizeText(strokes: readonly StrokeObject[]): TextRecognition
     const medianHeight = Math.max(1, median(line.glyphs.map((g) => g.box.maxY - g.box.minY)))
     const spaceGap = Math.max(0.35 * medianAdvance, 0.3 * medianHeight)
     let text = ''
-    let prev: ScoredGlyph | null = null
+    let prev: RecognizedGlyph | null = null
     for (const glyph of line.glyphs) {
       if (prev && medianAdvance > 0) {
         const gap = glyph.box.minX - prev.box.maxX
@@ -400,8 +468,8 @@ export function recognizeText(strokes: readonly StrokeObject[]): TextRecognition
     x,
     y,
     fontSize,
-    color: dominantColor(infos),
-    confidence,
+    color: details.color,
+    confidence: details.confidence,
     glyphCount: allGlyphs.length,
   }
 }

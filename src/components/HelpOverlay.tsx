@@ -28,6 +28,7 @@ const HONEST_NOTES: string[] = [
   'Your notes live only in this browser (IndexedDB). Clearing site data erases them — export a JSON backup regularly.',
   'Shape recognition is conservative geometric matching, not AI: ambiguous strokes always stay freehand.',
   'Handwriting-to-text runs fully offline by template matching. It reads clear, separated block letters best; cursive and slanted writing will often refuse (ink stays untouched) or guess wrong. Converted text stays fully editable.',
+  '“Beautify” redraws recognized letters as clean template letterforms on a shared baseline — layout is kept, personal letter style is replaced. Unclear letters keep their original ink.',
 ]
 
 /** Modal help: keyboard shortcuts plus honest notes about input limits. */
