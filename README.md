@@ -22,6 +22,11 @@ notes never leave your device.
   Text tool (T) over a written area: an offline template matcher turns block
   letters into an editable text object that keeps your ink color and letter
   size. One undo step restores the strokes.
+- **Handwriting beautification** — select ink and press **Beautify**:
+  recognized letters are redrawn as clean, evenly sized letterforms aligned
+  to a straight baseline, in your ink color — like tidying a whiteboard
+  without retyping it. Unclear letters keep their original ink; one undo
+  step restores everything.
 - **Eraser** — object-level erasing with a visible halo cursor.
 - **Select & move** — tap to select (Shift for multi-select), drag to move,
   with grid snapping and alignment guides.
@@ -72,6 +77,29 @@ What it does **not** do — and refuses rather than guessing:
 Converted text is a real document object: select it to edit content, size and
 color in the properties panel, move it, or delete it. The conversion itself is
 a single undoable step — Ctrl+Z brings the ink back.
+
+## Handwriting beautification: what "Beautify" does
+
+Beautification shares the recognizer's per-glyph pipeline (line clustering →
+glyph segmentation → template matching) but **redraws ink instead of typing
+text**: every confidently recognized letter is replaced with the matching
+template letterform, resampled to fine spacing and lightly rounded so it
+reads as neat hand-lettering rather than a font. Per line, letters are scaled
+to a consistent size and snapped to one straight baseline; letter positions,
+word gaps and line breaks are preserved from your original layout.
+
+Guardrails, identical in spirit to To Text:
+
+- Glyphs below the per-character confidence floor keep their **original
+  ink** — a guessed letter is never drawn over your writing.
+- If overall confidence is below the gate (or nothing was recognizable), the
+  action refuses and your ink is untouched.
+- The whole replacement is one undoable command (Ctrl+Z), and the replacement
+  ink stays selected afterwards so it is easy to delete or convert.
+
+Like To Text, beautification is deterministic geometry — no AI model, no
+network, no keys — and inherits the honest limits: block letters in, cursive
+out (refused, not mangled).
 
 ## Backups (please read)
 
