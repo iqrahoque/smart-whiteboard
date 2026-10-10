@@ -26,6 +26,14 @@ export class StorageUnavailableError extends Error {
 
 export class DocumentRepository {
   private readonly factory: IDBFactory | undefined
+  /**
+   * Write queue: saves are serialized so an older, slower write can never
+   * commit after a newer one and clobber fresh state with stale data (each
+   * save opens its own connection, so IndexedDB would otherwise order the
+   * transactions by connection timing, not by call order). Failures are
+   * swallowed by the chain link so one failed save cannot block the next.
+   */
+  private writeQueue: Promise<void> = Promise.resolve()
 
   constructor(factory?: IDBFactory) {
     this.factory = factory
@@ -66,7 +74,15 @@ export class DocumentRepository {
     }
   }
 
-  async save(notebook: NotebookDoc): Promise<void> {
+  /** Queued, strictly ordered write of the notebook. */
+  save(notebook: NotebookDoc): Promise<void> {
+    const run = this.writeQueue.then(() => this.writeNotebook(notebook))
+    this.writeQueue = run.catch(() => undefined)
+    return run
+  }
+
+  // `protected` (not private) so tests can inject slow/failing writes.
+  protected async writeNotebook(notebook: NotebookDoc): Promise<void> {
     const db = await this.openDb()
     try {
       await new Promise<void>((resolve, reject) => {

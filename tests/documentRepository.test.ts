@@ -50,4 +50,44 @@ describe('DocumentRepository (fake-indexeddb)', () => {
     const loaded = await r.load(nb.id)
     expect(loaded?.name).toBe('v2')
   })
+
+  it('serializes overlapping saves so the newest write lands last', async () => {
+    // The first write is artificially slow AFTER the queue would have let the
+    // second write start: without serialized saves the stale record would
+    // commit last and win.
+    class SlowFirstWriteRepo extends DocumentRepository {
+      private slowed = false
+      protected override async writeNotebook(nb: Parameters<DocumentRepository['save']>[0]): Promise<void> {
+        if (!this.slowed) {
+          this.slowed = true
+          await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        await super.writeNotebook(nb)
+      }
+    }
+    const r = new SlowFirstWriteRepo(new IDBFactory() as unknown as IDBFactory)
+    const nb = createNotebook('older')
+    const first = r.save(nb)
+    await r.save({ ...nb, name: 'newer' })
+    await first
+    expect((await r.load(nb.id))?.name).toBe('newer')
+  })
+
+  it('a failed save does not poison the write queue for later saves', async () => {
+    class FailOnceRepo extends DocumentRepository {
+      private failed = false
+      protected override async writeNotebook(nb: Parameters<DocumentRepository['save']>[0]): Promise<void> {
+        if (!this.failed) {
+          this.failed = true
+          throw new Error('injected write failure')
+        }
+        await super.writeNotebook(nb)
+      }
+    }
+    const r = new FailOnceRepo(new IDBFactory() as unknown as IDBFactory)
+    const nb = createNotebook('after failure')
+    await expect(r.save(nb)).rejects.toThrow('injected write failure')
+    await r.save({ ...nb, name: 'recovered' })
+    expect((await r.load(nb.id))?.name).toBe('recovered')
+  })
 })
