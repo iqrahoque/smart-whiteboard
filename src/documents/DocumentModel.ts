@@ -34,6 +34,7 @@ export type ToolId =
   | 'highlighter'
   | 'eraser'
   | 'select'
+  | 'text'
   | 'line'
   | 'rectangle'
   | 'ellipse'
@@ -67,7 +68,23 @@ export interface ShapeObject extends BaseObject {
   width: number
 }
 
-export type PageObject = StrokeObject | ShapeObject
+/**
+ * A typed text block — usually produced by offline handwriting recognition
+ * (strokes are replaced in one undoable command) and editable afterwards.
+ * (x, y) is the top-left of the first line in document space.
+ */
+export interface TextObject extends BaseObject {
+  type: 'text'
+  x: number
+  y: number
+  /** May contain \n for line breaks (one per recognized handwriting line). */
+  text: string
+  color: string
+  /** Font size in document units (derived from the handwritten glyph height). */
+  fontSize: number
+}
+
+export type PageObject = StrokeObject | ShapeObject | TextObject
 
 export interface PageDoc {
   id: string
@@ -138,6 +155,13 @@ export function createShape(
   return { type: 'shape', id, ...init }
 }
 
+export function createText(
+  init: Pick<TextObject, 'x' | 'y' | 'text' | 'color' | 'fontSize'>,
+  id = createId(),
+): TextObject {
+  return { type: 'text', id, ...init }
+}
+
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
@@ -162,6 +186,13 @@ export function objectBounds(obj: PageObject): { minX: number; minY: number; max
     const minY = Math.min(obj.y1, obj.y2)
     const maxY = Math.max(obj.y1, obj.y2)
     return { minX, minY, maxX, maxY }
+  }
+  if (obj.type === 'text') {
+    // Exact bounds are registered by the painter once the font has measured
+    // the text (platform-dependent); fall back to a deterministic estimate.
+    const cached = getCachedTextBounds(obj.id, textBoundsKey(obj))
+    if (cached) return cached
+    return approximateTextBounds(obj)
   }
   let minX = Infinity
   let minY = Infinity
@@ -198,5 +229,46 @@ export function translateObject<T extends PageObject>(obj: T, dx: number, dy: nu
   if (obj.type === 'shape') {
     return { ...obj, x1: obj.x1 + dx, y1: obj.y1 + dy, x2: obj.x2 + dx, y2: obj.y2 + dy }
   }
+  if (obj.type === 'text') {
+    return { ...obj, x: obj.x + dx, y: obj.y + dy }
+  }
   return { ...obj, points: obj.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) }
+}
+
+// ---------------------------------------------------------------------------
+// Text bounds registry (filled by the painter after real font measurement;
+// keeps the model DOM-free so tests run without a canvas implementation)
+// ---------------------------------------------------------------------------
+
+const textBoundsCache = new Map<string, { key: string; bounds: { minX: number; minY: number; maxX: number; maxY: number } }>()
+
+/** Cache key covering everything that changes rendered text metrics. */
+export function textBoundsKey(obj: TextObject): string {
+  return `${obj.text}\u0000${obj.fontSize}`
+}
+
+export function registerTextBounds(
+  id: string,
+  key: string,
+  bounds: { minX: number; minY: number; maxX: number; maxY: number },
+): void {
+  textBoundsCache.set(id, { key, bounds })
+}
+
+function getCachedTextBounds(
+  id: string,
+  key: string,
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const hit = textBoundsCache.get(id)
+  return hit && hit.key === key ? hit.bounds : null
+}
+
+/** Deterministic estimate used before the first real measurement (tests, SSR). */
+export function approximateTextBounds(obj: TextObject): { minX: number; minY: number; maxX: number; maxY: number } {
+  const lines = obj.text.split('\n')
+  const longest = lines.reduce((m, l) => Math.max(m, l.length), 0)
+  const lineHeight = obj.fontSize * 1.4
+  const width = Math.max(1, longest) * obj.fontSize * 0.62
+  const height = lineHeight * (lines.length - 1) + obj.fontSize
+  return { minX: obj.x, minY: obj.y, maxX: obj.x + width, maxY: obj.y + height }
 }

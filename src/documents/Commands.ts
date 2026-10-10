@@ -7,7 +7,7 @@
  * pointer sample (commands are created on gesture *completion*, not per point).
  */
 
-import type { NotebookDoc, PageDoc, PageObject, PaperStyle, ShapeKind } from './DocumentModel'
+import type { NotebookDoc, PageDoc, PageObject, PaperStyle, ShapeKind, TextObject } from './DocumentModel'
 import { findPage, replacePage, translateObject } from './DocumentModel'
 
 export interface DocCommand {
@@ -162,6 +162,79 @@ export function renamePageCommand(pageId: string, name: string): DocCommand {
       if (!page) return nb
       return replacePage(nb, { ...page, name: before, updatedAt: Date.now() })
     },
+  }
+}
+
+/**
+ * Replace a set of handwriting strokes with one text object as a single
+ * undoable step (offline handwriting recognition). Revert removes the text
+ * and restores every stroke at its original z-order index.
+ */
+export function convertStrokesToTextCommand(
+  pageId: string,
+  strokes: readonly PageObject[],
+  text: TextObject,
+): DocCommand {
+  const ids = new Set(strokes.map((o) => o.id))
+  // Original indices so undo can restore the exact z-order.
+  let entries: Array<{ obj: PageObject; index: number }> = []
+  return {
+    label: 'Convert to text',
+    apply: (nb) => {
+      const page = findPage(nb, pageId)
+      if (!page) return nb
+      entries = page.objects
+        .map((obj, index) => ({ obj, index }))
+        .filter((e) => ids.has(e.obj.id))
+      if (entries.length === 0) return nb
+      const insertAt = Math.min(...entries.map((e) => e.index))
+      const kept = page.objects.filter((o) => !ids.has(o.id))
+      const objects = [...kept]
+      objects.splice(Math.min(insertAt, objects.length), 0, text)
+      return replacePage(nb, { ...page, objects, updatedAt: Date.now() })
+    },
+    revert: (nb) => {
+      const page = findPage(nb, pageId)
+      if (!page) return nb
+      const objects = page.objects.filter((o) => o.id !== text.id)
+      for (const e of [...entries].sort((a, b) => a.index - b.index)) {
+        objects.splice(Math.min(e.index, objects.length), 0, e.obj)
+      }
+      return replacePage(nb, { ...page, objects, updatedAt: Date.now() })
+    },
+  }
+}
+
+/** Patch a text object's content / size / color. Revert restores the fields. */
+export function updateTextCommand(
+  pageId: string,
+  id: string,
+  patch: Partial<Pick<TextObject, 'text' | 'fontSize' | 'color'>>,
+): DocCommand {
+  let before: Partial<Pick<TextObject, 'text' | 'fontSize' | 'color'>> = {}
+  return {
+    label: 'Edit text',
+    apply: (nb) => {
+      const page = findPage(nb, pageId)
+      const obj = page?.objects.find((o) => o.id === id)
+      if (!page || !obj || obj.type !== 'text') return nb
+      before = {}
+      if (patch.text !== undefined && patch.text !== obj.text) before.text = obj.text
+      if (patch.fontSize !== undefined && patch.fontSize !== obj.fontSize) before.fontSize = obj.fontSize
+      if (patch.color !== undefined && patch.color !== obj.color) before.color = obj.color
+      if (Object.keys(before).length === 0) return nb
+      return (
+        updatePageObjects(nb, pageId, (objs) =>
+          objs.map((o) => (o.id === id && o.type === 'text' ? { ...o, ...patch } : o)),
+        ) ?? nb
+      )
+    },
+    revert: (nb) =>
+      (
+        updatePageObjects(nb, pageId, (objs) =>
+          objs.map((o) => (o.id === id && o.type === 'text' ? { ...o, ...before } : o)),
+        ) ?? nb
+      ),
   }
 }
 

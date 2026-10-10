@@ -3,7 +3,7 @@
  * document units and scale with object width so thin ink stays pickable.
  */
 
-import type { PageObject, Point, ShapeObject, StrokeObject } from '../documents/DocumentModel'
+import type { PageObject, Point, ShapeObject, StrokeObject, TextObject } from '../documents/DocumentModel'
 import { objectBounds } from '../documents/DocumentModel'
 
 export function distanceToSegment(p: Point, a: Point, b: Point): number {
@@ -83,6 +83,13 @@ function hitTestShape(shape: ShapeObject, p: Point, tol: number, mode: 'border' 
   }
 }
 
+function hitTestText(obj: TextObject, p: Point, tol: number): boolean {
+  const b = objectBounds(obj)
+  return (
+    p.x >= b.minX - tol && p.x <= b.maxX + tol && p.y >= b.minY - tol && p.y <= b.maxY + tol
+  )
+}
+
 export function hitTestObject(
   obj: PageObject,
   p: Point,
@@ -90,6 +97,7 @@ export function hitTestObject(
   mode: 'border' | 'area',
 ): boolean {
   if (obj.type === 'stroke') return hitTestStroke(obj, p, tol)
+  if (obj.type === 'text') return hitTestText(obj, p, tol)
   return hitTestShape(obj, p, tol, mode)
 }
 

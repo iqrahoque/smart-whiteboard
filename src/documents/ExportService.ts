@@ -48,19 +48,27 @@ function validPoints(v: unknown, count: number): v is SampledPoint[] {
 function validObject(v: unknown): v is PageObject {
   if (!isRecord(v)) return false
   if (typeof v.id !== 'string' || v.id.length === 0 || v.id.length > 128) return false
-  if (typeof v.color !== 'string' || v.color.length > 32) return false
-  if (!finiteNumber(v.width) || (v.width as number) <= 0 || (v.width as number) > 200) return false
   if (v.type === 'stroke') {
+    if (typeof v.color !== 'string' || v.color.length > 32) return false
+    if (!finiteNumber(v.width) || (v.width as number) <= 0 || (v.width as number) > 200) return false
     if ((v.tool !== 'pen' && v.tool !== 'highlighter') || typeof v.smoothing !== 'string') return false
     if (v.smoothing !== 'low' && v.smoothing !== 'balanced' && v.smoothing !== 'high') return false
     return validPoints(v.points, 1)
   }
   if (v.type === 'shape') {
+    if (typeof v.color !== 'string' || v.color.length > 32) return false
+    if (!finiteNumber(v.width) || (v.width as number) <= 0 || (v.width as number) > 200) return false
     const kinds: unknown[] = ['line', 'rectangle', 'ellipse', 'arrow']
     if (!kinds.includes(v.kind)) return false
     return (
       finiteNumber(v.x1) && finiteNumber(v.y1) && finiteNumber(v.x2) && finiteNumber(v.y2)
     )
+  }
+  if (v.type === 'text') {
+    if (typeof v.color !== 'string' || v.color.length > 32) return false
+    if (typeof v.text !== 'string' || v.text.length === 0 || v.text.length > 5000) return false
+    if (!finiteNumber(v.x) || !finiteNumber(v.y)) return false
+    return finiteNumber(v.fontSize) && (v.fontSize as number) > 0 && (v.fontSize as number) <= 1000
   }
   return false
 }
