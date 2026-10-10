@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { NotebookDoc, PageDoc, ToolId } from '../documents/DocumentModel'
 import { createId, createNotebook, createPage, findPage } from '../documents/DocumentModel'
@@ -32,6 +32,8 @@ import type { BridgeExtras } from './bridge'
 import type { SaveState } from './AppState'
 import { INK_COLORS, loadSettings, persistSettings } from './settings'
 import type { AppSettings } from './settings'
+import type { TextObject } from '../documents/DocumentModel'
+import { updateTextCommand } from '../documents/Commands'
 
 const INITIAL_HISTORY: HistoryState = { canUndo: false, canRedo: false, undoCount: 0, redoCount: 0 }
 
@@ -65,6 +67,9 @@ export function App(): JSX.Element {
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [navigateMode, setNavigateMode] = useState(false)
   const [storageWarning, setStorageWarning] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [selectionVersion, bumpSelection] = useReducer((n: number) => n + 1, 0)
+  const noticeTimerRef = useRef<number | null>(null)
 
   // Lazy singletons (stable identities for the bridge and effects).
   const controllerRef = useRef<DocumentController | null>(null)
@@ -186,6 +191,17 @@ export function App(): JSX.Element {
             zoomTimerRef.current = null
             setZoomPercent(Math.round(v.zoom * 100))
           }, 250)
+        },
+        onNotice: (message: string) => {
+          setNotice(message)
+          if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current)
+          noticeTimerRef.current = window.setTimeout(() => {
+            noticeTimerRef.current = null
+            setNotice(null)
+          }, 4200)
+        },
+        onSelectionChanged: () => {
+          bumpSelection()
         },
       }),
     [controller],
@@ -404,6 +420,10 @@ export function App(): JSX.Element {
         case 'A':
           setTool('arrow')
           break
+        case 't':
+        case 'T':
+          setTool('text')
+          break
         case 'n':
         case 'N':
           setNavigateMode((v) => !v)
@@ -432,6 +452,20 @@ export function App(): JSX.Element {
   const currentPage: PageDoc | undefined = notebook ? findPage(notebook, pageId) : undefined
   const undo = useCallback(() => controller.undo(), [controller])
   const redo = useCallback(() => controller.redo(), [controller])
+
+  // Selection-derived info for the properties panel (recomputed when the
+  // bridge notifies a change or the document changes).
+  const selectionIds = bridge.getSelectionIds()
+  const selectedObjects = useMemo(
+    () => (currentPage ? currentPage.objects.filter((o) => selectionIds.includes(o.id)) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentPage, selectionVersion],
+  )
+  const selectedStrokesCount = selectedObjects.filter((o) => o.type === 'stroke').length
+  const selectedText: TextObject | null =
+    selectedObjects.length === 1 && selectedObjects[0]?.type === 'text'
+      ? (selectedObjects[0] as TextObject)
+      : null
 
   return (
     <div className="app" data-theme={settings.theme}>
@@ -462,6 +496,12 @@ export function App(): JSX.Element {
           <button type="button" className="btn small" onClick={() => setStorageWarning(null)}>
             Dismiss
           </button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="notice" role="status">
+          {notice}
         </div>
       )}
 
@@ -505,6 +545,10 @@ export function App(): JSX.Element {
             settings={settings}
             onSettingsChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
             onClearPage={clearPage}
+            selectedStrokesCount={selectedStrokesCount}
+            selectedText={selectedText}
+            onConvertSelectionToText={() => bridge.convertSelectionToText()}
+            onTextChange={(id, patch) => controller.dispatch(updateTextCommand(currentPage.id, id, patch))}
           />
         )}
       </div>

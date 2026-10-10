@@ -18,6 +18,10 @@ notes never leave your device.
 - **Shapes** — draw line, rectangle, ellipse and arrow directly, or (optionally)
   let conservative geometric recognition convert a clean pen stroke into a
   shape. Ambiguous strokes always stay freehand; recognition is off by default.
+- **Handwriting → text** — select ink and press **To Text**, or drag with the
+  Text tool (T) over a written area: an offline template matcher turns block
+  letters into an editable text object that keeps your ink color and letter
+  size. One undo step restores the strokes.
 - **Eraser** — object-level erasing with a visible halo cursor.
 - **Select & move** — tap to select (Shift for multi-select), drag to move,
   with grid snapping and alignment guides.
@@ -39,9 +43,35 @@ Honesty about limits, so there are no surprises:
   workaround: while a gesture is active, additional simultaneous touches are
   ignored. A resting palm is still just another contact — if a stray mark
   slips through, Ctrl+Z removes it.
-- **No lasso selection, no text boxes, no image/PDF import.** Ink and shapes
-  only, on purpose.
+- **No lasso selection, no image/PDF import.** Ink, shapes and text only, on
+  purpose.
 - **No cloud sync.** Storage is IndexedDB in this browser, this profile.
+
+## Handwriting → text: how it works and where it fails
+
+The recognizer is a **fully offline template matcher** (no AI model, no
+network, no keys). It clusters strokes into lines and glyphs, matches each
+glyph against a built-in single-stroke letter set with an order-independent
+point-cloud distance, and assembles words, spaces and newlines.
+
+What it does well:
+
+- Clear, separated **block / print letters**, digits and basic punctuation,
+  written at a consistent size on a line.
+- Multi-stroke letters (H, A, E, F…) whose strokes touch or overlap.
+- Mixed case: letter height decides `o` vs `O` and friends.
+
+What it does **not** do — and refuses rather than guessing:
+
+- **Cursive or slanted connected writing** — strokes that run into each other
+  produce garbage; expect refusals ("not confident enough — your ink is
+  untouched") or wrong guesses in the editable result.
+- **Letters written far apart or at wildly varying sizes** on one line.
+- One-stroke letters with long "jump" connectors between their parts.
+
+Converted text is a real document object: select it to edit content, size and
+color in the properties panel, move it, or delete it. The conversion itself is
+a single undoable step — Ctrl+Z brings the ink back.
 
 ## Backups (please read)
 

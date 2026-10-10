@@ -55,6 +55,11 @@ export interface InputBridge {
   endErase(): void
   cancelErase(): void
 
+  /** Text tool: drag a marquee rectangle, enclosed handwriting converts. */
+  beginTextMarquee(p: Point): void
+  updateTextMarquee(p: Point): void
+  endTextMarquee(p: Point, commit: boolean): void
+
   /** Returns true when the tap landed on an object (move gesture starts). */
   selectAt(p: Point, additive: boolean): boolean
   beginMove(p: Point): void
@@ -64,7 +69,7 @@ export interface InputBridge {
   updateCursor(p: Point | null): void
 }
 
-type GestureMode = 'idle' | 'drawing' | 'erasing' | 'shaping' | 'moving' | 'panning' | 'pinching'
+type GestureMode = 'idle' | 'drawing' | 'erasing' | 'shaping' | 'textmarquee' | 'moving' | 'panning' | 'pinching'
 
 interface TrackedPointer {
   x: number
@@ -205,6 +210,10 @@ export class InputController {
         this.mode = 'erasing'
         this.bridge.beginErase(this.docPoint(e))
         break
+      case 'text':
+        this.mode = 'textmarquee'
+        this.bridge.beginTextMarquee(this.docPoint(e))
+        break
       case 'line':
       case 'rectangle':
       case 'ellipse':
@@ -241,6 +250,11 @@ export class InputController {
       case 'erasing': {
         if (e.pointerId !== this.activePointerId) return
         this.bridge.moveErase(this.docPoint(e))
+        break
+      }
+      case 'textmarquee': {
+        if (e.pointerId !== this.activePointerId) return
+        this.bridge.updateTextMarquee(this.docPoint(e))
         break
       }
       case 'shaping': {
@@ -327,6 +341,9 @@ export class InputController {
       case 'erasing':
         if (commit) this.bridge.endErase()
         else this.bridge.cancelErase()
+        break
+      case 'textmarquee':
+        this.bridge.endTextMarquee(this.docPoint(e), commit)
         break
       case 'shaping':
         if (commit) this.bridge.endShape(this.snap(this.docPoint(e)))

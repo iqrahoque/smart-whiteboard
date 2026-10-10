@@ -7,12 +7,20 @@
  * ruled/dotted/grid patterns stay crisp at any zoom without moiré.
  */
 
-import type { PageDoc, PageObject, ShapeObject, StrokeObject } from '../documents/DocumentModel'
+import type { PageDoc, PageObject, ShapeObject, StrokeObject, TextObject } from '../documents/DocumentModel'
+import { registerTextBounds, textBoundsKey } from '../documents/DocumentModel'
 import type { ViewTransform } from './CoordinateSystem'
 
 export const GRID_SPACING = 24
 export const RULED_SPACING = 28
 export const DOT_SPACING = 24
+
+/**
+ * Handwriting-flavoured font stack for text objects. Segoe Print ships with
+ * Windows (the target platform); the rest are graceful fallbacks.
+ */
+export const TEXT_FONT_STACK = '"Segoe Print", "Bradley Hand", "Comic Sans MS", "Segoe UI", cursive'
+export const TEXT_LINE_HEIGHT = 1.4
 
 function hexToRgba(hex: string, alpha: number): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
@@ -187,7 +195,92 @@ export function paintShape(ctx: CanvasRenderingContext2D, obj: ShapeObject): voi
 
 export function paintObject(ctx: CanvasRenderingContext2D, obj: PageObject): void {
   if (obj.type === 'stroke') paintStroke(ctx, obj)
+  else if (obj.type === 'text') paintText(ctx, obj)
   else paintShape(ctx, obj)
+}
+
+// ---------------------------------------------------------------------------
+// Text objects
+// ---------------------------------------------------------------------------
+
+export interface TextLayout {
+  /** Width of the widest line in document units. */
+  width: number
+  /** Total block height (ascent of line 1 → descent of the last line). */
+  height: number
+  /** Distance from the block top to the first baseline. */
+  ascent: number
+  lineHeight: number
+  font: string
+}
+
+let measureCtx: CanvasRenderingContext2D | null | undefined
+
+function getMeasureContext(): CanvasRenderingContext2D | null {
+  if (measureCtx !== undefined) return measureCtx
+  try {
+    const canvas = document.createElement('canvas')
+    measureCtx = canvas.getContext('2d')
+  } catch {
+    measureCtx = null
+  }
+  return measureCtx
+}
+
+function estimateLayout(obj: TextObject): TextLayout {
+  const lines = obj.text.split('\n')
+  const longest = lines.reduce((m, l) => Math.max(m, l.length), 0)
+  return {
+    width: Math.max(1, longest) * obj.fontSize * 0.62,
+    height: Math.max(obj.fontSize, TEXT_LINE_HEIGHT * obj.fontSize * (lines.length - 1) + obj.fontSize),
+    ascent: obj.fontSize * 0.8,
+    lineHeight: TEXT_LINE_HEIGHT * obj.fontSize,
+    font: `${obj.fontSize}px ${TEXT_FONT_STACK}`,
+  }
+}
+
+/**
+ * Measure a text block with the real font when a canvas is available and
+ * register the exact bounds for hit-testing/selection. Falls back to a
+ * deterministic estimate in non-DOM environments (tests).
+ */
+export function measureTextLayout(obj: TextObject): TextLayout {
+  const ctx = getMeasureContext()
+  if (!ctx) return estimateLayout(obj)
+  const font = `${obj.fontSize}px ${TEXT_FONT_STACK}`
+  ctx.font = font
+  const lines = obj.text.split('\n')
+  let width = 1
+  for (const line of lines) {
+    const w = ctx.measureText(line).width
+    if (w > width) width = w
+  }
+  const probe = ctx.measureText('Mg')
+  const ascent = probe.actualBoundingBoxAscent || obj.fontSize * 0.8
+  const descent = probe.actualBoundingBoxDescent || obj.fontSize * 0.22
+  const lineHeight = TEXT_LINE_HEIGHT * obj.fontSize
+  const height = lineHeight * (lines.length - 1) + ascent + descent
+  const layout: TextLayout = { width, height, ascent, lineHeight, font }
+  registerTextBounds(obj.id, textBoundsKey(obj), {
+    minX: obj.x,
+    minY: obj.y,
+    maxX: obj.x + width,
+    maxY: obj.y + height,
+  })
+  return layout
+}
+
+export function paintText(ctx: CanvasRenderingContext2D, obj: TextObject): void {
+  const layout = measureTextLayout(obj)
+  const lines = obj.text.split('\n')
+  ctx.save()
+  ctx.fillStyle = obj.color
+  ctx.font = layout.font
+  ctx.textBaseline = 'alphabetic'
+  lines.forEach((line, i) => {
+    ctx.fillText(line, obj.x, obj.y + layout.ascent + i * layout.lineHeight)
+  })
+  ctx.restore()
 }
 
 /** Paint a page (background + objects) into an arbitrary context/viewport. */

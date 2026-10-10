@@ -8,6 +8,7 @@ export interface HelpOverlayProps {
 const SHORTCUTS: Array<[string, string]> = [
   ['P / H', 'Pen / Highlighter'],
   ['E / V', 'Eraser / Select'],
+  ['T', 'Text: drag a box over handwriting to convert it'],
   ['L / R / O / A', 'Line / Rectangle / Ellipse / Arrow'],
   ['N', 'Navigate mode (pan & zoom without drawing)'],
   ['Space (hold)', 'Temporary pan'],
@@ -26,6 +27,7 @@ const HONEST_NOTES: string[] = [
   '“Ignore extra contacts” is a best-effort workaround, not palm rejection — a resting palm is just another touch. Stray marks can be undone with Ctrl+Z.',
   'Your notes live only in this browser (IndexedDB). Clearing site data erases them — export a JSON backup regularly.',
   'Shape recognition is conservative geometric matching, not AI: ambiguous strokes always stay freehand.',
+  'Handwriting-to-text runs fully offline by template matching. It reads clear, separated block letters best; cursive and slanted writing will often refuse (ink stays untouched) or guess wrong. Converted text stays fully editable.',
 ]
 
 /** Modal help: keyboard shortcuts plus honest notes about input limits. */

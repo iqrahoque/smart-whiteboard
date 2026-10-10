@@ -573,6 +573,47 @@ button {
   border-bottom-color: #5c4a22;
 }
 
+/* Transient status notice (handwriting conversion results, refusals). */
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  z-index: 40;
+}
+
+/* Properties panel: handwriting → text */
+.prop-hint {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted, #6e6e73);
+}
+
+.text-edit-row {
+  display: block;
+}
+
+.text-edit {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2, transparent);
+  color: var(--text);
+  font: inherit;
+}
+
 .overlay-backdrop {
   position: fixed;
   inset: 0;

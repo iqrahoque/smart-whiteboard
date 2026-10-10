@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import type { PaperStyle, ToolId } from '../documents/DocumentModel'
+import type { PaperStyle, TextObject, ToolId } from '../documents/DocumentModel'
 import type { InkStyle } from '../canvas/InputController'
 import {
   INK_COLORS,
@@ -18,6 +19,12 @@ export interface PropertiesPanelProps {
   settings: AppSettings
   onSettingsChange: (patch: Partial<AppSettings>) => void
   onClearPage: () => void
+  /** Number of handwriting strokes in the current selection. */
+  selectedStrokesCount: number
+  /** The selected text object, when exactly one is selected. */
+  selectedText: TextObject | null
+  onConvertSelectionToText: () => void
+  onTextChange: (id: string, patch: Partial<Pick<TextObject, 'text' | 'fontSize' | 'color'>>) => void
 }
 
 const PAPERS: Array<{ id: PaperStyle; label: string }> = [
@@ -62,8 +69,81 @@ function Swatches({
   )
 }
 
+/**
+ * Editor for a single selected text object. Local state so typing is fluid;
+ * changes are dispatched as undoable commands on blur / slider release.
+ */
+function TextEditor({
+  text,
+  onChange,
+}: {
+  text: TextObject
+  onChange: (id: string, patch: Partial<Pick<TextObject, 'text' | 'fontSize' | 'color'>>) => void
+}): JSX.Element {
+  const [draft, setDraft] = useState(text.text)
+  const [size, setSize] = useState(Math.round(text.fontSize))
+  // Resync when a different text object gets selected.
+  useEffect(() => {
+    setDraft(text.text)
+    setSize(Math.round(text.fontSize))
+  }, [text.id, text.text, text.fontSize])
+
+  return (
+    <>
+      <label className="prop-row text-edit-row">
+        <textarea
+          className="text-edit"
+          value={draft}
+          rows={3}
+          aria-label="Text content"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            if (draft !== text.text && draft.trim().length > 0) onChange(text.id, { text: draft })
+            else if (draft.trim().length === 0) setDraft(text.text)
+          }}
+        />
+      </label>
+      <label className="prop-row">
+        <span className="prop-label">Size</span>
+        <input
+          type="range"
+          min={10}
+          max={200}
+          step={1}
+          value={size}
+          aria-label="Text size"
+          onChange={(e) => setSize(Number(e.target.value))}
+          onPointerUp={() => onChange(text.id, { fontSize: size })}
+          onKeyUp={() => onChange(text.id, { fontSize: size })}
+          onBlur={() => onChange(text.id, { fontSize: size })}
+        />
+        <span className="prop-value">{size}</span>
+      </label>
+      <Swatches
+        colors={INK_COLORS}
+        value={text.color}
+        label="Text color"
+        onPick={(color) => onChange(text.id, { color })}
+      />
+    </>
+  )
+}
+
 export function PropertiesPanel(props: PropertiesPanelProps): JSX.Element {
-  const { tool, ink, onInkChange, paper, onPaperChange, settings, onSettingsChange, onClearPage } = props
+  const {
+    tool,
+    ink,
+    onInkChange,
+    paper,
+    onPaperChange,
+    settings,
+    onSettingsChange,
+    onClearPage,
+    selectedStrokesCount,
+    selectedText,
+    onConvertSelectionToText,
+    onTextChange,
+  } = props
   const inkActive = tool === 'pen' || tool === 'highlighter'
 
   return (
@@ -135,6 +215,35 @@ export function PropertiesPanel(props: PropertiesPanelProps): JSX.Element {
             Clear page
           </button>
         </div>
+      </section>
+
+      <section className="prop-section">
+        <h3 className="prop-title">Handwriting → text</h3>
+        {selectedText ? (
+          <TextEditor text={selectedText} onChange={onTextChange} />
+        ) : (
+          <>
+            <p className="prop-hint">
+              Select ink with the Select tool, or drag with the Text tool (T) over a written area.
+              Works best with clear, separated block letters — offline matching, no cloud.
+            </p>
+            <div className="prop-row">
+              <button
+                type="button"
+                className="btn"
+                disabled={selectedStrokesCount === 0}
+                title={
+                  selectedStrokesCount > 0
+                    ? `Convert ${selectedStrokesCount} stroke${selectedStrokesCount === 1 ? '' : 's'} to typed text (undoable)`
+                    : 'Select handwriting strokes first'
+                }
+                onClick={onConvertSelectionToText}
+              >
+                To Text{selectedStrokesCount > 0 ? ` (${selectedStrokesCount})` : ''}
+              </button>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="prop-section">

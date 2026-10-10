@@ -8,7 +8,7 @@
  * React render. Commands are dispatched only on gesture completion.
  */
 
-import { addObjectCommand, moveObjectsCommand, removeObjectsCommand } from '../documents/Commands'
+import { addObjectCommand, convertStrokesToTextCommand, moveObjectsCommand, removeObjectsCommand } from '../documents/Commands'
 import type { DocumentController } from '../documents/DocumentController'
 import type {
   NotebookDoc,
@@ -16,18 +16,20 @@ import type {
   Point,
   SampledPoint,
   ShapeKind,
+  StrokeObject,
   ToolId,
 } from '../documents/DocumentModel'
-import { createShape, createStroke, findPage, objectBounds, unionBounds } from '../documents/DocumentModel'
+import { createShape, createStroke, createText, findPage, objectBounds, unionBounds } from '../documents/DocumentModel'
 import { zoomView } from '../canvas/CoordinateSystem'
 import type { CanvasRect, ViewTransform } from '../canvas/CoordinateSystem'
 import type { InkStyle } from '../canvas/InputController'
 import type { AppBridge } from '../canvas/WhiteboardCanvas'
-import { hitTestObject, pickTopmostObject } from '../geometry/hitTesting'
+import { hitTestObject, objectsIntersectingRect, pickTopmostObject } from '../geometry/hitTesting'
 import { computeAlignmentGuides, snapValue } from '../geometry/SnapEngine'
 import type { Bounds } from '../geometry/SnapEngine'
 import { recognizeShape, RECOGNIZE_THRESHOLD } from '../geometry/ShapeRecognizer'
 import { processRawSamples } from '../ink/StrokeProcessor'
+import { recognizeText } from '../ink/TextRecognizer'
 import type { AppSettings } from './settings'
 
 /** Extra imperative handles the App shell needs beyond InputBridge. */
@@ -37,6 +39,10 @@ export interface BridgeExtras {
   zoomTo(zoom: number): void
   zoomByFactor(factor: number): void
   clearSelection(): void
+  /** Current selection ids (read on render; changes arrive via onSelectionChanged). */
+  getSelectionIds(): readonly string[]
+  /** Convert the selected handwriting strokes into a text object. */
+  convertSelectionToText(): boolean
   /** Delete the selected objects; true when a command was dispatched. */
   deleteSelection(): boolean
 }
@@ -51,6 +57,10 @@ export interface BridgeDeps {
   controller: DocumentController
   /** Notified after every view change (App debounces the zoom label). */
   onViewChanged: (view: ViewTransform) => void
+  /** Transient user-facing message (conversion results, refusals). */
+  onNotice: (message: string) => void
+  /** Notified whenever the selection changes so React can refresh panels. */
+  onSelectionChanged: () => void
 }
 
 const ERASE_TOLERANCE = 8
@@ -67,6 +77,11 @@ interface MoveState {
   others: Bounds[]
 }
 
+interface MarqueeState {
+  start: Point
+  current: Point
+}
+
 export function buildAppBridge(deps: BridgeDeps): AppBridge & BridgeExtras {
   let view: ViewTransform = { zoom: 1, panX: 0, panY: 0 }
   let livePoints: SampledPoint[] = []
@@ -74,6 +89,7 @@ export function buildAppBridge(deps: BridgeDeps): AppBridge & BridgeExtras {
   let shapeKind: ShapeKind | null = null
   let selectionIds: string[] = []
   let moveState: MoveState | null = null
+  let marquee: MarqueeState | null = null
   const erasingIds = new Set<string>()
 
   const currentPageObjects = (): PageObject[] => {
@@ -134,6 +150,43 @@ export function buildAppBridge(deps: BridgeDeps): AppBridge & BridgeExtras {
   const centerScreen = (): Point => {
     const rect: CanvasRect = api.getCanvasRect()
     return { x: rect.width / 2, y: rect.height / 2 }
+  }
+
+  const notifySelection = (): void => {
+    deps.onSelectionChanged()
+  }
+
+  const setSelection = (ids: string[]): void => {
+    selectionIds = ids
+    api.renderer?.setSelection(selectionIds)
+    notifySelection()
+  }
+
+  /** Convert handwriting strokes into a typed text object (undoable). */
+  const convertStrokes = (strokes: readonly StrokeObject[]): boolean => {
+    if (strokes.length === 0) {
+      deps.onNotice('Select some handwriting first, then convert it to text.')
+      return false
+    }
+    const result = recognizeText(strokes)
+    if (!result) {
+      deps.onNotice(
+        'Not confident enough to convert — your ink is untouched. Clear, separated block letters work best.',
+      )
+      return false
+    }
+    const text = createText({
+      x: result.x,
+      y: result.y,
+      text: result.text,
+      color: result.color,
+      fontSize: result.fontSize,
+    })
+    deps.controller.dispatch(convertStrokesToTextCommand(deps.pageId.current, strokes, text))
+    deps.onNotice(
+      `Converted to text (${Math.round(result.confidence * 100)}% confidence) — Ctrl+Z restores the ink.`,
+    )
+    return true
   }
 
   const api: AppBridge & BridgeExtras = {
@@ -281,23 +334,48 @@ export function buildAppBridge(deps: BridgeDeps): AppBridge & BridgeExtras {
       eraseCursor(null)
     },
 
+    beginTextMarquee: (p) => {
+      marquee = { start: p, current: p }
+      api.renderer?.setTextMarquee({ x1: p.x, y1: p.y, x2: p.x, y2: p.y })
+    },
+    updateTextMarquee: (p) => {
+      if (!marquee) return
+      marquee.current = p
+      api.renderer?.setTextMarquee({ x1: marquee.start.x, y1: marquee.start.y, x2: p.x, y2: p.y })
+    },
+    endTextMarquee: (p, commit) => {
+      const m = marquee
+      marquee = null
+      api.renderer?.setTextMarquee(null)
+      if (!m || !commit) return
+      const rect = {
+        x1: Math.min(m.start.x, p.x),
+        y1: Math.min(m.start.y, p.y),
+        x2: Math.max(m.start.x, p.x),
+        y2: Math.max(m.start.y, p.y),
+      }
+      if (rect.x2 - rect.x1 < 4 && rect.y2 - rect.y1 < 4) return
+      const strokes = objectsIntersectingRect(currentPageObjects(), rect).filter(
+        (o): o is StrokeObject => o.type === 'stroke',
+      )
+      convertStrokes(strokes)
+    },
+
     selectAt: (p, additive) => {
       const hit = pickTopmostObject(currentPageObjects(), p, PICK_TOLERANCE)
       if (!hit) {
-        if (!additive && selectionIds.length > 0) {
-          selectionIds = []
-          api.renderer?.setSelection([])
-        }
+        if (!additive && selectionIds.length > 0) setSelection([])
         return false
       }
       if (additive) {
-        selectionIds = selectionIds.includes(hit.id)
-          ? selectionIds.filter((id) => id !== hit.id)
-          : [...selectionIds, hit.id]
+        setSelection(
+          selectionIds.includes(hit.id)
+            ? selectionIds.filter((id) => id !== hit.id)
+            : [...selectionIds, hit.id],
+        )
       } else {
-        selectionIds = [hit.id]
+        setSelection([hit.id])
       }
-      api.renderer?.setSelection(selectionIds)
       return true
     },
     beginMove: (p) => {
@@ -355,16 +433,23 @@ export function buildAppBridge(deps: BridgeDeps): AppBridge & BridgeExtras {
       setView(zoomView(view, centerScreen(), factor))
     },
     clearSelection: () => {
-      selectionIds = []
-      api.renderer?.setSelection([])
+      setSelection([])
+    },
+    getSelectionIds: () => selectionIds,
+    convertSelectionToText: () => {
+      const strokes = currentPageObjects().filter(
+        (o): o is StrokeObject => selectionIds.includes(o.id) && o.type === 'stroke',
+      )
+      const ok = convertStrokes(strokes)
+      if (ok) setSelection([])
+      return ok
     },
     deleteSelection: () => {
       if (selectionIds.length === 0) return false
       const removed = currentPageObjects().filter((o) => selectionIds.includes(o.id))
       if (removed.length === 0) return false
       deps.controller.dispatch(removeObjectsCommand(deps.pageId.current, removed))
-      selectionIds = []
-      api.renderer?.setSelection([])
+      setSelection([])
       return true
     },
   }

@@ -12,6 +12,7 @@ const PEN_ICON = 'M4 20l2.5-8L16 2.5 21.5 8 12 17.5 4 20z'
 const HIGHLIGHTER_ICON = 'M4 17h6l9-9-4-4-9 9-2 4zM3 21h18'
 const ERASER_ICON = 'M7 21h10M5 15l8-8 6 6-6 6H9l-4-4z'
 const SELECT_ICON = 'M5 3l14 8-6 1.5L16 19l-3 1.5-3-6.5L5 17V3z'
+const TEXT_ICON = 'M5 7V4h14v3M12 4v16M8 20h8'
 const LINE_ICON = 'M4 20L20 4'
 const RECTANGLE_ICON = 'M4 6h16v12H4z'
 const ELLIPSE_ICON = 'M12 5c4.5 0 8 3.1 8 7s-3.5 7-8 7-8-3.1-8-7 3.5-7 8-7z'
@@ -22,6 +23,7 @@ const TOOL_ITEMS: Array<{ id: ToolId; label: string; shortcut: string; icon: str
   { id: 'highlighter', label: 'Highlighter', shortcut: 'H', icon: HIGHLIGHTER_ICON },
   { id: 'eraser', label: 'Eraser', shortcut: 'E', icon: ERASER_ICON },
   { id: 'select', label: 'Select', shortcut: 'V', icon: SELECT_ICON },
+  { id: 'text', label: 'Text', shortcut: 'T', icon: TEXT_ICON },
   { id: 'line', label: 'Line', shortcut: 'L', icon: LINE_ICON },
   { id: 'rectangle', label: 'Rectangle', shortcut: 'R', icon: RECTANGLE_ICON },
   { id: 'ellipse', label: 'Ellipse', shortcut: 'O', icon: ELLIPSE_ICON },

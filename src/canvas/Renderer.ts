@@ -62,6 +62,7 @@ export class CanvasRenderer {
 
   private liveStroke: LiveStroke | null = null
   private liveShape: LiveShape | null = null
+  private textMarquee: { x1: number; y1: number; x2: number; y2: number } | null = null
   private selectionIds: readonly string[] = []
   private hiddenIds: ReadonlySet<string> = new Set()
   private offsetPreview: { ids: ReadonlySet<string>; dx: number; dy: number } | null = null
@@ -112,6 +113,12 @@ export class CanvasRenderer {
 
   setLiveShape(live: LiveShape | null): void {
     this.liveShape = live
+    this.requestRender()
+  }
+
+  /** Dashed selection rectangle shown while dragging the Text tool. */
+  setTextMarquee(rect: { x1: number; y1: number; x2: number; y2: number } | null): void {
+    this.textMarquee = rect
     this.requestRender()
   }
 
@@ -244,6 +251,22 @@ export class CanvasRenderer {
         else ctx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
       }
       ctx.stroke()
+      ctx.restore()
+    }
+
+    // Text-tool marquee preview.
+    if (this.textMarquee) {
+      const m = this.textMarquee
+      const tl = documentToScreen(Math.min(m.x1, m.x2), Math.min(m.y1, m.y2), this.view)
+      const br = documentToScreen(Math.max(m.x1, m.x2), Math.max(m.y1, m.y2), this.view)
+      ctx.save()
+      ctx.strokeStyle = getComputedStyleCanvasAccent(this.canvas)
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([6, 4])
+      ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y)
+      ctx.fillStyle = getComputedStyleCanvasAccent(this.canvas)
+      ctx.globalAlpha = 0.08
+      ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y)
       ctx.restore()
     }
 
